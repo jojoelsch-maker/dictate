@@ -1,0 +1,40 @@
+#!/usr/bin/env fish
+# dictate — toggle voice dictation.
+# Press once: start recording the mic.
+# Press again: stop, transcribe via Lemonade (Whisper), type the text
+# into the focused window.
+
+set PIDFILE /tmp/dictate.pid
+set WAV /tmp/dictate.wav
+set WAV_FIXED /tmp/dictate_fixed.wav
+# whispercpp:vulkan (GPU) — the NPU/FLM whisper conflicts with the E4B
+# background agent: FLM can't hold whisper+embed+chat at once, and a failed
+# load makes lemond evict ALL models (including the main GPU model).
+set MODEL Whisper-Large-v3-Turbo
+set API http://localhost:13305/api/v1/audio/transcriptions
+
+if test -f $PIDFILE
+    # --- State 2: recording is running -> stop and transcribe ---
+    kill (cat $PIDFILE) 2>/dev/null
+    rm -f $PIDFILE
+    sleep 0.3 # give pw-record a moment to finish writing the file
+
+    # pw-record leaves the RIFF header incomplete when killed; ffmpeg rewrites it
+    ffmpeg -y -i $WAV -ar 16000 -ac 1 -f wav $WAV_FIXED 2>/dev/null
+
+    notify-send -t 1500 "Dictation" "Transcribing..."
+    set text (curl -s $API -F file=@$WAV_FIXED -F model=$MODEL | jq -r .text | string trim)
+    rm -f $WAV $WAV_FIXED
+
+    if test -n "$text"
+        wtype -- "$text"
+    else
+        notify-send -t 3000 "Dictation" "Nothing recognized"
+    end
+else
+    # --- State 1: not recording -> start ---
+    # 16 kHz mono is what Whisper expects; smaller file, faster upload.
+    pw-record --rate 16000 --channels 1 $WAV &
+    echo $last_pid > $PIDFILE
+    notify-send -t 1500 "Dictation" "Recording... press again to stop"
+end
