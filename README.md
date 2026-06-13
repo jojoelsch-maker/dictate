@@ -20,7 +20,9 @@ Uses Lemonade (Whisper) for transcription and ydotool to inject the result as ke
 - `notify-send` — desktop notifications for recording state
 - `ydotool` — simulate Ctrl+V paste (kept as daemon for future use)
 - `wtype` — type Unicode text directly into the focused Wayland window (layout-independent)
-- Lemonade server running with `whisper-v3-turbo-FLM` loaded
+- Lemonade server running with `Whisper-Large-v3-Turbo` loaded on the
+  `whispercpp:vulkan` (GPU) backend — not the NPU/FLM build (it conflicts
+  with the background agent and can evict all loaded models)
 
 ---
 
