@@ -41,7 +41,7 @@ echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput
 
 Add yourself to the `input` group:
 ```fish
-sudo usermod -aG input jsnd
+sudo usermod -aG input $USER
 ```
 
 Reload udev rules (or reboot):
@@ -68,10 +68,11 @@ ln -s ~/projects/dictate/dictate ~/.local/bin/dictate
 
 ### 6. Bind to a hotkey in COSMIC
 Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts → Add:
-- **Command:** `/home/jsnd/.local/bin/dictate`
+- **Command:** `/home/<your-username>/.local/bin/dictate`
 - **Shortcut:** Super+Space (remove the default language-input binding first)
 
-Use the full path, not just `dictate` — COSMIC launches shortcuts without a shell PATH.
+Use a full absolute path, not just `dictate` and not `~` or `$USER` — COSMIC
+launches shortcuts without a shell, so nothing gets expanded.
 
 ---
 
