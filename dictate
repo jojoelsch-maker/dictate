@@ -23,13 +23,34 @@ if test -f $PIDFILE
     ffmpeg -y -i $WAV -ar 16000 -ac 1 -f wav $WAV_FIXED 2>/dev/null
 
     notify-send -t 1500 "Dictation" "Transcribing..."
-    set text (curl -s $API -F file=@$WAV_FIXED -F model=$MODEL | jq -r .text | string trim)
+    # language=de: without it Whisper auto-detects per recording and English
+    # loanwords can flip it to English, yielding a bad translation instead
+    # of a German transcript. Whisper still transcribes embedded English
+    # terms fine. Delete the flag to go back to auto-detect.
+    set response (curl -s $API -F file=@$WAV_FIXED -F model=$MODEL -F language=de)
     rm -f $WAV $WAV_FIXED
+
+    # Whisper hard-wraps .text at ~55 Zeichen, teils mitten im Wort. Ohne
+    # 'tr -d' wird daraus in fish eine Liste, die beim Tippen mit Leerzeichen
+    # verbunden wird: "Klassen" -> "Kl assen". Die Zeilenumbrueche ersatzlos
+    # zu entfernen rekonstruiert den Originaltext.
+    # ponytail: setzt voraus, dass Whisper das fuehrende Leerzeichen je Segment
+    # behaelt. Kleben Woerter zusammen ("miteingebaut"), stattdessen joinen mit ' '.
+    set text (echo $response | jq -r 'if .text and .text != "null" then .text else empty end' 2>/dev/null | tr -d '\n' | string trim)
+
+    # ponytail: Diagnose-Log, protokolliert JEDES Diktat im Klartext.
+    # Raus damit, sobald die Transkription laenger stabil laeuft.
+    echo (date -Is)" | "$text >> /tmp/dictate.log
 
     if test -n "$text"
         wtype -- "$text"
     else
-        notify-send -t 3000 "Dictation" "Nothing recognized"
+        set err (echo $response | jq -r '.error // empty' 2>/dev/null)
+        if test -n "$err"
+            notify-send -u critical -t 4000 "Dictation Error" "$err"
+        else
+            notify-send -t 3000 "Dictation" "Nothing recognized"
+        end
     end
 else
     # --- State 1: not recording -> start ---

@@ -11,6 +11,13 @@ Uses Lemonade (Whisper) for transcription and ydotool to inject the result as ke
 1. First hotkey press: starts recording mic to `/tmp/dictate.wav` via `pw-record`
 2. Second hotkey press: stops recording, sends WAV to Lemonade's Whisper API, types the transcription into the focused window via `ydotool`
 
+Transcription language is pinned to German (`-F language=de` in the script,
+added 2026-07-06): Whisper's per-recording auto-detect flipped to English on
+German speech with English loanwords and produced a poor translation instead
+of a transcript. English terms inside German sentences still come out fine.
+To dictate in another language (or restore auto-detect), edit/remove that
+flag in `dictate`.
+
 ---
 
 ## Dependencies
@@ -30,7 +37,7 @@ Uses Lemonade (Whisper) for transcription and ydotool to inject the result as ke
 
 ### 1. Install ydotool
 ```fish
-paru -S ydotool
+shelly install ydotool
 ```
 
 ### 2. Allow your user to access /dev/uinput
@@ -80,3 +87,85 @@ launches shortcuts without a shell, so nothing gets expanded.
 
 ## Log out and back in after step 2
 Group membership (`input`) only takes effect after a new login session.
+
+---
+
+## Troubleshooting
+
+### "Nothing recognized" on every recording
+Almost always Lemonade, not dictate. Check first:
+```fish
+systemctl status lemond
+curl -s http://localhost:13305/api/v1/models | jq -r '.data[].id'
+```
+
+**Known cause (2026-08-14):** an `mbedtls` upgrade to 4.1.0 shipped
+`libmbedtls.so.23`, but `lemonade-server` 11.5.2-1.1 is built against
+`libmbedtls.so.21` from mbedtls 3.x. `lemond` then crash-loops with
+`error while loading shared libraries` (exit 127) and dictate gets no
+transcription back.
+
+Fix — old libs from the pacman cache, for this one service only:
+```fish
+# extract mbedtls 3.6.5 (still in /var/cache/pacman/pkg/) somewhere temporary
+tar --use-compress-program=unzstd -xf /var/cache/pacman/pkg/mbedtls-3.6.5-1-x86_64.pkg.tar.zst -C /tmp/mb usr/lib
+sudo install -d /usr/lib/lemonade-compat
+sudo cp -a /tmp/mb/usr/lib/libmbed{tls,x509,crypto}.so.* /usr/lib/lemonade-compat/
+sudo install -d /etc/systemd/system/lemond.service.d
+# /etc/systemd/system/lemond.service.d/mbedtls-compat.conf:
+#   [Service]
+#   Environment=LD_LIBRARY_PATH=/usr/lib/lemonade-compat
+sudo systemctl daemon-reload && sudo systemctl restart lemond
+```
+The rest of the system stays on mbedtls 4. **Delete the drop-in and
+`/usr/lib/lemonade-compat/` once a rebuilt `lemonade-server` (> 11.5.2-1.1)
+lands in the repos** — check with `pacman -Si lemonade-server`.
+
+Not done instead: downgrading `mbedtls` (breaks everything else built
+against so.23) or symlinking so.23 → so.21 (mbedtls 3 → 4 is an ABI break,
+TLS would crash).
+
+### Satzende fehlt: letzter Buchstabe weg, kein Punkt
+
+Aufgeklaert am 2026-09-09 mit `/tmp/dictate.log`. Es waren zwei unabhaengige
+Fehler.
+
+Diese Log-Zeile steht noch im Script und schreibt **jede** Transkription im
+Klartext nach `/tmp/dictate.log` -- als Diagnosehilfe absichtlich drin, aber
+bewusst zu entfernen, sobald sie nicht mehr gebraucht wird (`/tmp` wird beim
+Neustart geleert, bis dahin ist es jedes Diktat mitlesbar).
+
+**Fehler 1: zerschnittene Woerter (behoben).** Whisper bricht `.text` hart bei
+~55 Zeichen um, auch mitten im Wort. In fish wird eine Kommandosubstitution an
+Zeilenumbruechen in eine *Liste* zerlegt; `"$text"` fuegt diese Liste dann mit
+Leerzeichen wieder zusammen. Aus `Klassen` wurde so `Kl assen`, aus
+`Expertise` `Expert ise`. Das betraf jedes Fenster, nicht nur VS Code.
+`tr -d '\n'` entfernt die Umbrueche jetzt ersatzlos, bevor fish splittet.
+
+**Fehler 2: verschluckte Satzenden (behoben, ausserhalb von dictate).** Im
+VS-Code-Terminal fehlte an *jedem* Punkt der Satz-Punkt plus der Buchstabe
+davor (`gut.` -> `gu`, `worden.` -> `worde`). Im Log stand der Satz
+vollstaendig, Audio und Whisper waren also unschuldig -- und deterministisch
+an einem Zeichen statt zufaellig, ein Timing-Problem war es damit auch nicht.
+
+Der Gegentest, diktiert in ein Programm ohne TUI:
+```fish
+cat > /tmp/dictate-test.txt   # diktieren, Enter, Ctrl+D
+diff (tail -1 /tmp/dictate.log | cut -d'|' -f2- | psub) /tmp/dictate-test.txt
+```
+Die Datei kam fehlerfrei an. `wtype` liefert also korrekt ab; kaputt war die
+*Darstellung* in der TUI. Ursache ist VS Codes Local Echo: das integrierte
+Terminal sagt Tastendrucke lokal voraus, um Latenz zu kaschieren, und
+verrechnet sich mit einer TUI, die dieselbe Zeile selbst neu zeichnet.
+Abgeschaltet am 2026-09-09 in `~/.config/Code/User/settings.json`:
+```json
+"terminal.integrated.localEchoLatencyThreshold": -1
+```
+Kehrt der Fehler zurueck, bleibt als naechster Schritt Einfuegen statt Tippen
+(`wl-copy` + ein Ctrl+V-Anschlag statt hunderter Tastenevents) -- das umgeht
+die Tastendruck-Verarbeitung der TUI komplett. Die Paste-Taste ist allerdings
+je nach Terminal Ctrl+V oder Ctrl+Shift+V, deshalb erst bei Bedarf.
+
+Nicht die Ursache: abgeschnittenes Audio, und auch kein Timing. Beides war
+zwischenzeitlich im Script (`sleep 0.4` vor dem `kill`, `wtype -d 2`) und ist
+wieder heraus -- es brachte keinen Fix und kostete nur Latenz.
