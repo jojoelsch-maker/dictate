@@ -127,13 +127,16 @@ TLS would crash).
 
 ### Satzende fehlt: letzter Buchstabe weg, kein Punkt
 
-Aufgeklaert am 2026-09-09 mit `/tmp/dictate.log`. Es waren zwei unabhaengige
-Fehler.
+Aufgeklaert am 2026-09-09. Es waren zwei unabhaengige Fehler.
 
-Diese Log-Zeile steht noch im Script und schreibt **jede** Transkription im
-Klartext nach `/tmp/dictate.log` -- als Diagnosehilfe absichtlich drin, aber
-bewusst zu entfernen, sobald sie nicht mehr gebraucht wird (`/tmp` wird beim
-Neustart geleert, bis dahin ist es jedes Diktat mitlesbar).
+Das Werkzeug dafuer war eine Zeile, die jede Transkription mitschrieb. Sie ist
+wieder heraus -- dictate laeuft ohne. Fuer den naechsten Verdachtsfall reicht
+es, sie hinter der `set text`-Zeile wieder einzusetzen:
+```fish
+echo (date -Is)" | "$text >> /tmp/dictate.log
+```
+Sie protokolliert jedes Diktat im Klartext, gehoert also nur voruebergehend
+ins Script.
 
 **Fehler 1: zerschnittene Woerter (behoben).** Whisper bricht `.text` hart bei
 ~55 Zeichen um, auch mitten im Wort. In fish wird eine Kommandosubstitution an
@@ -148,7 +151,7 @@ davor (`gut.` -> `gu`, `worden.` -> `worde`). Im Log stand der Satz
 vollstaendig, Audio und Whisper waren also unschuldig -- und deterministisch
 an einem Zeichen statt zufaellig, ein Timing-Problem war es damit auch nicht.
 
-Der Gegentest, diktiert in ein Programm ohne TUI:
+Der Gegentest, mit dieser Zeile im Script, diktiert in ein Programm ohne TUI:
 ```fish
 cat > /tmp/dictate-test.txt   # diktieren, Enter, Ctrl+D
 diff (tail -1 /tmp/dictate.log | cut -d'|' -f2- | psub) /tmp/dictate-test.txt

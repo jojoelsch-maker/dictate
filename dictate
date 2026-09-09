@@ -38,10 +38,6 @@ if test -f $PIDFILE
     # behaelt. Kleben Woerter zusammen ("miteingebaut"), stattdessen joinen mit ' '.
     set text (echo $response | jq -r 'if .text and .text != "null" then .text else empty end' 2>/dev/null | tr -d '\n' | string trim)
 
-    # ponytail: Diagnose-Log, protokolliert JEDES Diktat im Klartext.
-    # Raus damit, sobald die Transkription laenger stabil laeuft.
-    echo (date -Is)" | "$text >> /tmp/dictate.log
-
     if test -n "$text"
         wtype -- "$text"
     else
